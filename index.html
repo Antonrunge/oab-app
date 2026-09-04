@@ -389,8 +389,9 @@ function loadPerfil(){
   if(!FIREBASE_READY || !S.user) return;
   db.collection("perfis").doc(S.user.uid).onSnapshot(function(doc){
     S.perfil = doc.exists ? doc.data() : null;
+    S._perfilLoaded = true;
     rT();
-  }, function(e){ console.error(e); });
+  }, function(e){ console.error(e); S._perfilLoaded = true; rT(); });
 }
 
 /* =========================================================
@@ -413,6 +414,8 @@ if(FIREBASE_READY){
       loadPerfil();
       loadExamDates();
       loadCollection("disciplinas");
+    } else {
+      S.perfil = null; S._perfilLoaded = false;
     }
     rT();
   });
@@ -1191,19 +1194,15 @@ function rT(){
     app.innerHTML = rAuthScreen();
     return;
   }
-  if(S.perfil===null){
+  if(!S._perfilLoaded){
     app.innerHTML = '<div class="center-screen"><div style="color:var(--muted)">Carregando seu perfil...</div></div>';
-    // dá tempo do listener de perfil responder; se realmente não existir doc, onboarding assume
-    setTimeout(function(){ if(S.perfil===null && !S._perfilChecked){ S._perfilChecked=true; rT(); } }, 900);
     return;
   }
-  if(S.perfil===undefined || (S.perfil && S.perfil.onboardingIncompleto)){}
-  if(!S.perfil && S._perfilChecked){
+  if(!S.perfil){
     app.innerHTML = rOnboarding();
     attachOnboardingEvents();
     return;
   }
-  if(!S.perfil) { app.innerHTML='<div class="center-screen"><div style="color:var(--muted)">Carregando...</div></div>'; return; }
 
   var body = "";
   if(S.tab==="dashboard") body = rDashboard();
