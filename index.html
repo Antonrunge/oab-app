@@ -812,7 +812,7 @@ function rSessaoQuestoes(){
     '<div class="qmeta">'+
       '<span class="qtag">'+es(q.disciplinaNome||"")+'</span>'+
       '<span class="qtag">'+es(q.tema||"")+'</span>'+
-      '<span class="qtag">'+DIF_LABEL[q.dificuldade]||''+'</span>'+
+      '<span class="qtag">'+(DIF_LABEL[q.dificuldade]||'')+'</span>'+
       (q.exame?'<span class="qtag">'+es(q.exame)+'</span>':'')+
     '</div>'+
     '<div class="qtext">'+es(q.enunciado)+'</div>'+
