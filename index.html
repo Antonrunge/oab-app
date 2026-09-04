@@ -1154,13 +1154,14 @@ function rPerfil(){
    17) ÁREA ADMINISTRATIVA
    ========================================================= */
 function rAdmin(){
-  var subs = [["datas","Datas do exame"],["disciplinas","Disciplinas"],["questoes","Questões"],["flashcards","Flashcards"],["dados","Dados demo"]];
+  var subs = [["datas","Datas do exame"],["disciplinas","Disciplinas"],["questoes","Questões"],["importar","Importar CSV"],["flashcards","Flashcards"],["dados","Dados demo"]];
   return '<div class="tab-scroll">'+
     subs.map(function(s){ return '<div class="chip-tab'+(S.adminSub===s[0]?' active':'')+'" data-admin-sub="'+s[0]+'">'+s[1]+'</div>'; }).join("")+
   '</div>'+
   (S.adminSub==="datas"?rAdminDatas():"")+
   (S.adminSub==="disciplinas"?rAdminDisciplinas():"")+
   (S.adminSub==="questoes"?rAdminQuestoes():"")+
+  (S.adminSub==="importar"?rAdminImportar():"")+
   (S.adminSub==="flashcards"?rAdminFlashcards():"")+
   (S.adminSub==="dados"?rAdminDados():"");
 }
@@ -1209,6 +1210,135 @@ function rAdminDados(){
     '<p style="color:var(--muted);font-size:13px;margin-bottom:12px">Carrega 12 disciplinas, 8 questões e 5 flashcards de exemplo para você começar a testar o app.</p>'+
     '<button class="btn" data-seed-demo>Carregar dados de demonstração</button>'+
   '</div>';
+}
+
+/* =========================================================
+   IMPORTAÇÃO DE QUESTÕES VIA CSV
+   Fluxo: você baixa as provas reais e comentários de uma fonte legítima (PDF oficial da
+   FGV/OAB, ou uma plataforma de questões comentadas que você já assina), monta uma planilha
+   com as colunas abaixo e importa aqui — sem que o app precise reproduzir conteúdo de terceiros.
+   ========================================================= */
+var CSV_COLUNAS = ["DISCIPLINA","TEMA","ENUNCIADO","ALTERNATIVA_A","ALTERNATIVA_B","ALTERNATIVA_C","ALTERNATIVA_D","GABARITO","COMENTARIO","ANO","EXAME","DIFICULDADE","FONTE"];
+function rAdminImportar(){
+  var res = S.importResultado;
+  return '<div class="card">'+
+    '<div class="card-title">Importar questões reais via CSV</div>'+
+    '<p style="color:var(--muted);font-size:13px;margin-bottom:10px">Traga questões de provas anteriores a partir de uma fonte legítima sua (PDF oficial da FGV/OAB, plataforma de questões comentadas que você assina, ou material próprio). Monte uma planilha com as colunas abaixo, salve como CSV e importe.</p>'+
+    '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px">'+
+      CSV_COLUNAS.map(function(c){ return '<span class="qtag">'+c+'</span>'; }).join("")+
+    '</div>'+
+    '<button class="btn secondary sm" style="margin-bottom:14px" data-baixar-modelo-csv>⬇ Baixar modelo CSV</button>'+
+    '<div class="field"><label>Arquivo CSV</label><input type="file" id="csv-file" accept=".csv,text/csv"></div>'+
+    '<button class="btn" data-importar-csv>Importar questões</button>'+
+    (res ? '<div class="explain" style="margin-top:14px">'+
+      '<div style="font-weight:800;color:var(--good)">'+res.ok+' questões importadas com sucesso</div>'+
+      (res.erros.length ? '<div style="margin-top:8px;color:var(--bad);font-weight:700">'+res.erros.length+' linha(s) com erro:</div>'+
+        '<ul style="margin:6px 0 0 18px;font-size:13px">'+res.erros.slice(0,10).map(function(e){ return '<li>'+es(e)+'</li>'; }).join("")+'</ul>' : '')+
+    '</div>' : '')+
+  '</div>';
+}
+function baixarModeloCSV(){
+  var header = CSV_COLUNAS.join(";");
+  var exemplo = ["Ética Profissional (EOAB)","Sigilo profissional","Cole aqui o enunciado real da questão...","Alternativa A","Alternativa B","Alternativa C","Alternativa D","B","Cole aqui o comentário/fundamentação...","2025","47º Exame","medio","PDF oficial FGV/OAB"].join(";");
+  var csv = header+"\n"+exemplo+"\n";
+  var blob = new Blob(["﻿"+csv], {type:"text/csv;charset=utf-8"});
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement("a");
+  a.href = url; a.download = "modelo_questoes_oab.csv";
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(function(){ URL.revokeObjectURL(url); }, 2000);
+}
+function parseCSV(text){
+  // parser simples com suporte a aspas e ; ou , como separador
+  text = text.replace(/^﻿/, "");
+  var sep = text.indexOf(";")>=0 && text.indexOf(";")<text.indexOf("\n") ? ";" : ",";
+  var rows = []; var row = []; var field = ""; var inQuotes = false;
+  for(var i=0;i<text.length;i++){
+    var c = text[i], n = text[i+1];
+    if(inQuotes){
+      if(c==='"' && n==='"'){ field+='"'; i++; }
+      else if(c==='"'){ inQuotes=false; }
+      else field += c;
+    } else {
+      if(c==='"') inQuotes = true;
+      else if(c===sep){ row.push(field); field=""; }
+      else if(c==='\r'){ /* skip */ }
+      else if(c==='\n'){ row.push(field); rows.push(row); row=[]; field=""; }
+      else field += c;
+    }
+  }
+  if(field.length || row.length){ row.push(field); rows.push(row); }
+  rows = rows.filter(function(r){ return r.some(function(v){ return String(v||"").trim().length; }); });
+  if(!rows.length) return [];
+  var headers = rows[0].map(function(h){ return String(h||"").trim().toUpperCase(); });
+  return rows.slice(1).map(function(r){
+    var obj = {};
+    headers.forEach(function(h,idx){ obj[h] = (r[idx]!==undefined?r[idx]:"").trim(); });
+    return obj;
+  });
+}
+function importarCSV(){
+  var input = document.getElementById("csv-file");
+  if(!input.files || !input.files[0]){ toast("Escolha um arquivo CSV primeiro."); return; }
+  var reader = new FileReader();
+  reader.onload = function(){
+    var linhas;
+    try{ linhas = parseCSV(String(reader.result||"")); }
+    catch(e){ toast("Não consegui ler o CSV."); return; }
+    if(!linhas.length){ toast("CSV vazio ou em formato inválido."); return; }
+    var erros = []; var validas = [];
+    linhas.forEach(function(l, idx){
+      var linhaNum = idx+2;
+      var disc = (l.DISCIPLINA||"").trim();
+      var enunciado = (l.ENUNCIADO||"").trim();
+      var gabarito = (l.GABARITO||"").trim().toUpperCase();
+      if(!disc){ erros.push("Linha "+linhaNum+": disciplina em branco."); return; }
+      if(!enunciado){ erros.push("Linha "+linhaNum+": enunciado em branco."); return; }
+      if(["A","B","C","D"].indexOf(gabarito)<0){ erros.push("Linha "+linhaNum+": gabarito inválido ('"+gabarito+"'), use A, B, C ou D."); return; }
+      validas.push({
+        disciplinaNome: disc, tema:(l.TEMA||"").trim(), enunciado:enunciado,
+        alternativas:{A:(l.ALTERNATIVA_A||"").trim(),B:(l.ALTERNATIVA_B||"").trim(),C:(l.ALTERNATIVA_C||"").trim(),D:(l.ALTERNATIVA_D||"").trim()},
+        gabarito:gabarito, comentario:(l.COMENTARIO||"").trim(),
+        ano:parseInt(l.ANO)||null, exame:(l.EXAME||"").trim(),
+        dificuldade:["facil","medio","dificil"].indexOf((l.DIFICULDADE||"").trim().toLowerCase())>=0 ? (l.DIFICULDADE||"").trim().toLowerCase() : "medio",
+        fonte:(l.FONTE||"").trim(), tags:[], criadoEm:Date.now()
+      });
+    });
+    if(!validas.length){ S.importResultado = {ok:0, erros:erros}; rT(); return; }
+    // resolve/cria disciplinaId por nome
+    var discPorNome = {};
+    S.disciplinas.forEach(function(d){ discPorNome[d.nome.toLowerCase()] = d.id; });
+    var nomesFaltando = {};
+    validas.forEach(function(v){ if(!discPorNome[v.disciplinaNome.toLowerCase()]) nomesFaltando[v.disciplinaNome]=true; });
+    var criarPromises = Object.keys(nomesFaltando).map(function(nome){
+      return db.collection("disciplinas").add({nome:nome, peso:5, ordem:S.disciplinas.length+1}).then(function(ref){
+        discPorNome[nome.toLowerCase()] = ref.id;
+      });
+    });
+    Promise.all(criarPromises).then(function(){
+      var batches = []; var atual = db.batch(); var count = 0;
+      validas.forEach(function(v){
+        var ref = db.collection("questoes").doc();
+        atual.set(ref, {
+          disciplinaId: discPorNome[v.disciplinaNome.toLowerCase()], disciplinaNome:v.disciplinaNome,
+          tema:v.tema, enunciado:v.enunciado, alternativas:v.alternativas, gabarito:v.gabarito,
+          comentario:v.comentario, ano:v.ano, exame:v.exame, dificuldade:v.dificuldade, fonte:v.fonte, tags:v.tags, criadoEm:v.criadoEm
+        });
+        count++;
+        if(count % 400 === 0){ batches.push(atual); atual = db.batch(); }
+      });
+      batches.push(atual);
+      return Promise.all(batches.map(function(b){ return b.commit(); }));
+    }).then(function(){
+      S.importResultado = {ok:validas.length, erros:erros};
+      toast(validas.length+" questões importadas!");
+      rT();
+    }).catch(function(e){
+      console.error(e);
+      toast("Erro ao salvar no banco: "+e.message);
+    });
+  };
+  reader.readAsText(input.files[0], "UTF-8");
 }
 
 /* Modais de cadastro (disciplina/questão/flashcard) */
@@ -1419,6 +1549,8 @@ document.addEventListener("click", function(e){
   // admin
   if((_t=e.target.closest("[data-admin-sub]"))){ S.adminSub=_t.dataset.adminSub; rT(); return; }
   if((_t=e.target.closest("[data-seed-demo]"))){ seedDemoData(); return; }
+  if((_t=e.target.closest("[data-baixar-modelo-csv]"))){ baixarModeloCSV(); return; }
+  if((_t=e.target.closest("[data-importar-csv]"))){ importarCSV(); return; }
   if((_t=e.target.closest("[data-salvar-datas]"))){
     var upd = {};
     ["editalPub","inscricaoInicio","inscricaoFim","fase1","fase2"].forEach(function(k){ upd[k]=document.getElementById("date-"+k).value; });
